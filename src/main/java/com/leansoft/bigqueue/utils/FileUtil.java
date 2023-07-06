@@ -2,6 +2,7 @@ package com.leansoft.bigqueue.utils;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileLock;
 
 public class FileUtil {
 	
@@ -42,12 +43,12 @@ public class FileUtil {
         }
     }
     
-    public static void deleteFile(File file) {
+    public static synchronized void deleteFile(File file) {
     	if (!file.exists() || !file.isFile()) {
     		return;
     	}
     	if (!file.delete()) {
-            throw new IllegalStateException("delete file failed: "+file);
+			throw new IllegalStateException("delete file failed: "+file);
     	}
     }
 }
