@@ -3,8 +3,14 @@ package com.leansoft.bigqueue.page;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,32 +29,32 @@ import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 /**
  * Mapped mapped page resource manager,
- * responsible for the creation, cache, recycle of the mapped pages. 
- * 
+ * responsible for the creation, cache, recycle of the mapped pages.
+ *
  * automatic paging and swapping algorithm is leveraged to ensure fast page fetch while
- * keep memory usage efficient at the same time.  
- * 
+ * keep memory usage efficient at the same time.
+ *
  * @author bulldog
  *
  */
 public class MappedPageFactoryImpl implements IMappedPageFactory {
-	
+
 	private final static Logger logger = LoggerFactory.getLogger(MappedPageFactoryImpl.class);
-	
+
 	private int pageSize;
 	private String pageDir;
 	private File pageDirFile;
 	private String pageFile;
 	private long ttl;
-	
+
 	private final Object mapLock = new Object();
 	private final Map<Long, Object> pageCreationLockMap = new HashMap<Long, Object>();
-	
+
 	public static final String PAGE_FILE_NAME = "page";
 	public static final String PAGE_FILE_SUFFIX = ".dat";
-	
+
 	private ILRUCache<Long, MappedPageImpl> cache;
-	
+
 	public MappedPageFactoryImpl(int pageSize, String pageDir, long cacheTTL) {
 		this.pageSize = pageSize;
 		this.pageDir = pageDir;
@@ -60,7 +66,7 @@ public class MappedPageFactoryImpl implements IMappedPageFactory {
 		if (!this.pageDir.endsWith(File.separator)) {
 			this.pageDir += File.separator;
 		}
-		this.pageFile = this.pageDir + PAGE_FILE_NAME + "-"; 
+		this.pageFile = this.pageDir + PAGE_FILE_NAME + "-";
 		this.cache = new LRUCacheImpl<Long, MappedPageImpl>();
 	}
 
@@ -90,7 +96,20 @@ public class MappedPageFactoryImpl implements IMappedPageFactory {
 							if (logger.isDebugEnabled()) {
 								logger.debug("Mapped page for " + fileName + " was just created and cached.");
 							}
-						} finally {
+
+							Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+							Field unsafeField = unsafeClass.getDeclaredField("theUnsafe");
+							unsafeField.setAccessible(true);
+							Object unsafe = unsafeField.get(null);
+							Method invokeCleaner = unsafeClass.getMethod("invokeCleaner", ByteBuffer.class);
+							invokeCleaner.invoke(unsafe, mbb);
+
+						}
+						catch(NoSuchFieldException | ClassNotFoundException | IllegalAccessException | NoSuchMethodException | InvocationTargetException e)
+						{
+							throw new RuntimeException(e);
+						}
+						finally {
 							if (channel != null) channel.close();
 							if (raf != null) raf.close();
 						}
@@ -106,7 +125,7 @@ public class MappedPageFactoryImpl implements IMappedPageFactory {
 	    		logger.debug("Hit mapped page " + mpi.getPageFile() + " in cache.");
 	    	}
 	    }
-	
+
 		return mpi;
 	}
 	
